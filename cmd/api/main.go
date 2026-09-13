@@ -2,6 +2,7 @@ package main
 
 import (
 	"github/com/anukool23/olx-api/internal/config"
+	"github/com/anukool23/olx-api/internal/handlers"
 	"log"
 	"net/http"
 	"time"
@@ -11,11 +12,7 @@ func main() {
 	cfg := config.MustLoad()
 	log.Printf("Starting olx server...")
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healtz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
-	})
+	mux.HandleFunc("GET /healtz", handlers.Health)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
