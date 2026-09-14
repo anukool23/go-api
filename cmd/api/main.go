@@ -2,6 +2,7 @@ package main
 
 import (
 	"github/com/anukool23/olx-api/internal/config"
+	"github/com/anukool23/olx-api/internal/db"
 	"github/com/anukool23/olx-api/internal/handlers"
 	"log"
 	"net/http"
@@ -10,6 +11,11 @@ import (
 
 func main() {
 	cfg := config.MustLoad()
+	_, err := db.Connect(cfg.DbUri)
+	if err != nil {
+		log.Fatalf("main:db:connect %v",err)
+	}
+	log.Printf("Database connected successfully...")
 	log.Printf("Starting olx server...")
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healtz", handlers.Health)

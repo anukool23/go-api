@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Port string
 	Env string
+	DbUri string
 }
 
 func MustLoad() Config {
@@ -23,9 +24,15 @@ func MustLoad() Config {
 	if env == "" {
 		panic("ENV environment variable is not set")
 	}
+	dbUri := os.Getenv("DB_URI")
+	if dbUri == "" {
+		panic("DB_URI environment variable is not set")
+	}
 	return Config{
 		Port: port,
 		Env: env,
+		DbUri:dbUri,
+
 	}
 	
 
