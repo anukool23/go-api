@@ -17,9 +17,18 @@ type listing struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-func Listings(db *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query(
+type ListingHandler struct {
+	db *sql.DB
+}
+
+func NewListingHandler(db *sql.DB) *ListingHandler{
+	return &ListingHandler{
+		db:db,
+	}
+}
+
+func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
+		rows, err := lh.db.Query(
 			`SELECT id, title, description, price, city, created_at 
 				FROM listings
 				ORDER BY created_at DESC LIMIT 100`)
@@ -49,4 +58,17 @@ func Listings(db *sql.DB) http.HandlerFunc {
 
 		_= json.NewEncoder(w).Encode(listings)
 	}
-}
+
+func (lh ListingHandler) Delete(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+
+		_, err := lh.db.Exec(`DELETE FROM listings WHERE id = $1`,id)
+		if err != nil {
+			log.Printf("db.Exec:delete %v",err)
+			http.Error(w, "Internal Error", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		
+	}
+
