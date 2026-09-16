@@ -11,7 +11,7 @@ import (
 
 func main() {
 	cfg := config.MustLoad()
-	_, err := db.Connect(cfg.DbUri)
+	db , err := db.Connect(cfg.DbUri)
 	if err != nil {
 		log.Fatalf("main:db:connect %v",err)
 	}
@@ -19,6 +19,7 @@ func main() {
 	log.Printf("Starting olx server...")
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healtz", handlers.Health)
+	mux.HandleFunc("GET /listings", handlers.Listings(db))
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,

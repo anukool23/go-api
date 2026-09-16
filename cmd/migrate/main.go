@@ -32,7 +32,7 @@ func main(){
 			log.Fatalf("migration:main: %s",err)
 		}
 	case "down":
-		if err := m.Down(); err != nil {
+		if err := m.Steps(-1); err != nil {
 			log.Fatalf("migration:main: %s",err)
 		}
 	default:
