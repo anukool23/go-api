@@ -85,23 +85,23 @@ func (lh ListingHandler) Delete(w http.ResponseWriter, r *http.Request) {
 func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	requestId := middleware.RequestIdFromContext(ctx)
-	var req listing
+	var req CreateListingRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		lh.logger.Error("ListingHandler:Create:Failed to decode", "requestId", requestId, "err", err)
 		httpx.Error(w, http.StatusBadRequest, "Request Validation Failed", httpx.CodeValidationError)
 		return
 	}
-	row := lh.db.QueryRowContext(ctx, `INSERT INTO listings (title, description, price, city) VALUES ($1,$2,$3,$4) RETURNING id`, req.Title, req.Description, req.Price, req.City)
-	var id string
-	if err := row.Scan(&id); err != nil {
-		lh.logger.Error("ListingHandler:Create:QueryRowContext:Failed to inseret dato into db", "requestId", requestId, "err", err)
+	row := lh.db.QueryRowContext(ctx, `INSERT INTO listings (title, description, price, city) VALUES ($1,$2,$3,$4) RETURNING id, title,created_at`, req.Title, req.Description, req.Price, req.City)
+	var outputResponse CreateListingResponse
+	if err := row.Scan(&outputResponse.ID, &outputResponse.Title, &outputResponse.CreatedAt); err != nil {
+		lh.logger.Error("ListingHandler:Create:QueryRowContext:Failed to insert data into db", "requestId", requestId, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "Internal server error", httpx.CodeInternalError)
 		return
 	}
-	lh.logger.Info("ListingHandler:Create: Listing created successfully", "requestId", requestId, "listinf_id", id)
+	lh.logger.Info("ListingHandler:Create: Listing created successfully", "requestId", requestId, "listing_id", outputResponse.ID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 
-	_ = json.NewEncoder(w).Encode(map[string]string{"id":id})
+	_ = json.NewEncoder(w).Encode(outputResponse)
 }
