@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"github/com/anukool23/olx-api/internal/httpx"
 	"github/com/anukool23/olx-api/internal/middleware"
 	"log"
@@ -88,7 +89,14 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req CreateListingRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		lh.logger.Error("ListingHandler:Create:Failed to decode", "requestId", requestId, "err", err)
-		httpx.Error(w, http.StatusBadRequest, "Request Validation Failed", httpx.CodeValidationError)
+		httpx.Error(w, http.StatusUnprocessableEntity, "Request Validation Failed", httpx.CodeValidationError)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		lh.logger.Error("ListingHandler:Create:Request Validation Failed", "requestId", requestId, "err", err)
+		var verr ValidationError
+		errors.As(err, &verr)
+		httpx.ValidationError(w, http.StatusUnprocessableEntity, err.Error(), httpx.CodeValidationError, verr.Field)
 		return
 	}
 	row := lh.db.QueryRowContext(ctx, `INSERT INTO listings (title, description, price, city) VALUES ($1,$2,$3,$4) RETURNING id, title,created_at`, req.Title, req.Description, req.Price, req.City)
