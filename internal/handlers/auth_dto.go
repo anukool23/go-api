@@ -16,10 +16,36 @@ type SignUpResponse struct {
 	CreatedAt string `json:"created_at"`
 }
 
+type SignInRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type SignInResponse struct {
+	Token	string `json:"token"`
+	ExpiresIn int64  `json:"expires_in"`
+}
+
 func (req SignUpRequest) Validate() error {
 	if strings.TrimSpace(req.Name) == "" {
 		return ValidationError{Field: "name", Message: "Name is required"}
 	}
+	if strings.TrimSpace(req.Email) == "" {
+		return ValidationError{Field: "email", Message: "Email is required"}
+	}
+	if _, err := mail.ParseAddress(req.Email); err != nil {
+		return ValidationError{Field: "email", Message: "Email is invalid"}
+	}
+	if strings.TrimSpace(req.Password) == "" {
+		return ValidationError{Field: "password", Message: "password is required"}
+	}
+	if len(req.Password) < 8 {
+		return ValidationError{Field: "password", Message: "password must be at least 8 chars"}
+	}
+	return nil
+}
+
+func (req SignInRequest) Validate() error {
 	if strings.TrimSpace(req.Email) == "" {
 		return ValidationError{Field: "email", Message: "Email is required"}
 	}

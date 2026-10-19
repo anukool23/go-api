@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Port string
 	Env string
+	JwtKey string
 	DbUri string
 }
 
@@ -28,11 +29,15 @@ func MustLoad() Config {
 	if dbUri == "" {
 		panic("DB_URI environment variable is not set")
 	}
+	jwtKey := os.Getenv("JWT_KEY")
+	if jwtKey == "" {
+		panic("JWT_KEY environment variable is not set")
+	}
 	return Config{
 		Port: port,
 		Env: env,
 		DbUri:dbUri,
-
+		JwtKey: jwtKey,
 	}
 	
 

@@ -29,7 +29,7 @@ func main() {
 	slog.SetDefault(logger)
 
 	lh := handlers.NewListingHandler(db, logger)
-	ah := handlers.NewAuthHandler(db, logger)
+	ah := handlers.NewAuthHandler(db, logger, cfg)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healtz", handlers.Health)
@@ -37,6 +37,7 @@ func main() {
 	mux.HandleFunc("DELETE /listings/{id}", lh.Delete)
 	mux.HandleFunc("POST /listings", lh.Create)
 	mux.HandleFunc("POST /signup", ah.SignUp)
+	mux.HandleFunc("POST /signin", ah.SignIn)
 
 	handler := middleware.RequestId(mux)
 	srv := &http.Server{
