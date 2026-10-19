@@ -23,17 +23,20 @@ func main() {
 
 	logHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		AddSource: true,
-		Level: slog.LevelDebug,
+		Level:     slog.LevelDebug,
 	})
 	logger := slog.New(logHandler)
 	slog.SetDefault(logger)
 
 	lh := handlers.NewListingHandler(db, logger)
+	ah := handlers.NewAuthHandler(db, logger)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healtz", handlers.Health)
 	mux.HandleFunc("GET /listings", lh.List)
 	mux.HandleFunc("DELETE /listings/{id}", lh.Delete)
 	mux.HandleFunc("POST /listings", lh.Create)
+	mux.HandleFunc("POST /signup", ah.SignUp)
 
 	handler := middleware.RequestId(mux)
 	srv := &http.Server{

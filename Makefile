@@ -1,4 +1,4 @@
-.PHONY: build run dev
+.PHONY: build run dev clean
 
 build:
 	@go build -o bin/api ./cmd/api
