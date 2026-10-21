@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+	"uuid"
 )
 
 type listing struct {
@@ -18,6 +19,7 @@ type listing struct {
 	Description string    `json:"description"`
 	Price       int64     `json:"price"`
 	City        string    `json:"city"`
+	Userid      uuid.UUID `json:"user_id"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -86,6 +88,12 @@ func (lh ListingHandler) Delete(w http.ResponseWriter, r *http.Request) {
 func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	requestId := middleware.RequestIdFromContext(ctx)
+	userId , ok := middleware.UserIdFromContext(ctx)
+	if !ok {
+		lh.logger.Error("ListingHandler:Create:Failed to get user id from context", "requestId", requestId)
+		httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
+		return
+	}
 	var req CreateListingRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		lh.logger.Error("ListingHandler:Create:Failed to decode", "requestId", requestId, "err", err)
@@ -99,7 +107,7 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.ValidationError(w, http.StatusUnprocessableEntity, err.Error(), httpx.CodeValidationError, verr.Field)
 		return
 	}
-	row := lh.db.QueryRowContext(ctx, `INSERT INTO listings (title, description, price, city) VALUES ($1,$2,$3,$4) RETURNING id, title,created_at`, req.Title, req.Description, req.Price, req.City)
+	row := lh.db.QueryRowContext(ctx, `INSERT INTO listings (title, description, price, city, user_id) VALUES ($1,$2,$3,$4,$5) RETURNING id, title,created_at`, req.Title, req.Description, req.Price, req.City, userId)
 	var outputResponse CreateListingResponse
 	if err := row.Scan(&outputResponse.ID, &outputResponse.Title, &outputResponse.CreatedAt); err != nil {
 		lh.logger.Error("ListingHandler:Create:QueryRowContext:Failed to insert data into db", "requestId", requestId, "err", err)

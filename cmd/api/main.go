@@ -36,7 +36,7 @@ func main() {
 	mux.HandleFunc("GET /healtz", handlers.Health)
 	mux.HandleFunc("GET /listings", lh.List)
 	mux.Handle("DELETE /listings/{id}", authMiddleware(http.HandlerFunc(lh.Delete)))
-	mux.HandleFunc("POST /listings", lh.Create)
+	mux.Handle("POST /listings", authMiddleware(http.HandlerFunc(lh.Create)))
 	mux.HandleFunc("POST /signup", ah.SignUp)
 	mux.HandleFunc("POST /signin", ah.SignIn)
 

@@ -30,14 +30,14 @@ type users struct {
 type AuthHandler struct {
 	db     *sql.DB
 	logger *slog.Logger
-	cfg config.Config
+	cfg    config.Config
 }
 
 func NewAuthHandler(db *sql.DB, logger *slog.Logger, cfg config.Config) *AuthHandler {
 	return &AuthHandler{
 		db:     db,
 		logger: logger,
-		cfg: cfg,
+		cfg:    cfg,
 	}
 }
 
@@ -133,7 +133,7 @@ func (ah AuthHandler) SignIn(w http.ResponseWriter, r *http.Request) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	log.Debug("AuthHandler:SignIn:Token generated", "token", token)
-	signed , err := token.SignedString([]byte(ah.cfg.JwtKey))
+	signed, err := token.SignedString([]byte(ah.cfg.JwtKey))
 	if err != nil {
 		log.Error("AuthHandler:SignIn:Token signing failed", "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
@@ -142,10 +142,10 @@ func (ah AuthHandler) SignIn(w http.ResponseWriter, r *http.Request) {
 	log.Info("AuthHandler:SignIn:User signed in successfully", "requestId", requestId, "user_id", u.ID)
 
 	out := SignInResponse{
-		Token: signed,
+		Token:     signed,
 		ExpiresIn: int64(tokenTTL.Seconds()),
 	}
-	log.Debug("User successfully logged in", "user_id",u.ID)
+	log.Debug("User successfully logged in", "user_id", u.ID)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(out)
