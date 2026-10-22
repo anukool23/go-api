@@ -10,7 +10,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
-	"uuid"
+
+	"github.com/google/uuid"
 )
 
 type listing struct {
@@ -73,7 +74,7 @@ func (lh ListingHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ctx := r.Context()
 	requestId := middleware.RequestIdFromContext(ctx)
-	userId , ok := middleware.UserIdFromContext(ctx)
+	userId, ok := middleware.UserIdFromContext(ctx)
 	if !ok {
 		lh.logger.Error("ListingHandler:Create:Failed to get user id from context", "requestId", requestId)
 		httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
@@ -94,7 +95,7 @@ func (lh ListingHandler) Delete(w http.ResponseWriter, r *http.Request) {
 func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	requestId := middleware.RequestIdFromContext(ctx)
-	userId , ok := middleware.UserIdFromContext(ctx)
+	userId, ok := middleware.UserIdFromContext(ctx)
 	if !ok {
 		lh.logger.Error("ListingHandler:Create:Failed to get user id from context", "requestId", requestId)
 		httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
@@ -128,8 +129,7 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(outputResponse)
 }
 
-
-func(lh ListingHandler)MyListings(w http.ResponseWriter, r * http.Request){
+func (lh ListingHandler) MyListings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	requestId := middleware.RequestIdFromContext(ctx)
 	log := lh.logger.With("requestId", requestId)
@@ -139,30 +139,30 @@ func(lh ListingHandler)MyListings(w http.ResponseWriter, r * http.Request){
 		httpx.Error(w, http.StatusUnauthorized, "Something went wrong", httpx.CodeUnauthorized)
 		return
 	}
-	rows, err := lh.db.QueryContext(ctx,`SELECT id, title, description, price, city, created_at 
-				FROM listings WHERE user_id = $1`,userId)
+	rows, err := lh.db.QueryContext(ctx, `SELECT id, title, description, price, city, created_at 
+				FROM listings WHERE user_id = $1`, userId)
 	if err != nil {
-		log.Error("ListingHandler:MyLisint:QueryContext:Error while fetching record from DB", "err",err)
+		log.Error("ListingHandler:MyLisint:QueryContext:Error while fetching record from DB", "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "Internal server error", httpx.CodeInternalError)
 		return
 	}
 	defer rows.Close()
 	listings := []listing{}
-	for rows.Next(){
+	for rows.Next() {
 		var l listing
-		if err := rows.Scan(&l.ID, &l.Title, &l.Description,&l.Price, &l.City, &l.CreatedAt); err != nil {
-			log.Error("ListingHandler:MyLisint:QueryContext:Error while iterating record from DB", "err",err)
+		if err := rows.Scan(&l.ID, &l.Title, &l.Description, &l.Price, &l.City, &l.CreatedAt); err != nil {
+			log.Error("ListingHandler:MyLisint:QueryContext:Error while iterating record from DB", "err", err)
 			httpx.Error(w, http.StatusInternalServerError, "Internal Server error", httpx.CodeInternalError)
 			return
 		}
 		listings = append(listings, l)
 	}
 	if err := rows.Err(); err != nil {
-		log.Error("ListingHandler:MyLisint:QueryContext:Error while iterating record from DB", "err",err)
-			httpx.Error(w, http.StatusInternalServerError, "Internal Server error", httpx.CodeInternalError)
-			return
+		log.Error("ListingHandler:MyLisint:QueryContext:Error while iterating record from DB", "err", err)
+		httpx.Error(w, http.StatusInternalServerError, "Internal Server error", httpx.CodeInternalError)
+		return
 	}
-	w.Header().Set("Content-Type","application/json")
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
 	_ = json.NewEncoder(w).Encode(listings)
