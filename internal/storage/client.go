@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -13,6 +14,7 @@ import (
 type Client struct {
 	client    *s3.Client
 	preSginer *s3.PresignClient
+	bucket          string
 }
 
 type R2Config struct {
@@ -37,5 +39,21 @@ func NewR2(ctx context.Context, cfg R2Config) (*Client, error) {
 	return &Client{
 		client:    client,
 		preSginer: preSignClient,
+		bucket   :      cfg.Bucket,
 	}, nil
+}
+
+func (c *Client) PreSignUpload(ctx context.Context, key, contentType string, contentLength int64, expiry time.Duration)(string, error) {
+	req, err := c.preSginer.PresignPutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(c.bucket),
+		Key:         aws.String(key),
+		ContentType: aws.String(contentType),
+		ContentLength: aws.Int64(contentLength),
+	}, func(opts *s3.PresignOptions) {
+		opts.Expires = expiry
+	})
+	if err != nil {
+		return "", fmt.Errorf("Storage: PreSignUpload: Failed to presign upload request :key-%s,  error-%w", key, err)
+	}
+	return req.URL, nil
 }

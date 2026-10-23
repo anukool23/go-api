@@ -8,6 +8,7 @@ import (
 	"github/com/anukool23/olx-api/internal/storage"
 	"log/slog"
 	"net/http"
+	"time"
 )
 
 type UploadHandler struct {
@@ -48,6 +49,7 @@ func (uh UploadHandler) Presign(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, fmt.Sprintf("Total files cannot be more than %d images", maximumFilesCountInRequest), httpx.CodeBadRequest)
 		return
 	}
+	uploads := make([]PreSignUpload, 0, len(req.Files))
 	for _, f := range req.Files {
 		ext, ok := allowedContentTypes[f.ContentType]
 		if !ok {
@@ -60,9 +62,27 @@ func (uh UploadHandler) Presign(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusBadRequest, fmt.Sprintf("Image size must be between 1 to %d bytes", maxImageBytes), httpx.CodeBadRequest)
 			return
 		}
-		// key := mintUploadKey(userId, ext)
-
+		key := mintUploadKey(userId, ext)
+		url, err := uh.store.PreSignUpload(ctx, key, f.ContentType, f.SizeBytes, preSignTTL)
+		if err != nil {
+			log.Error("UploadHandler:Presign:PreSignUpload:Failed to presign upload request", "error", err, "key", key)
+			httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
+			return
+		}
+		uploads = append(uploads, PreSignUpload{
+			UploadURL: url,
+			ObjectKey: key,
+			ExpiresAt: time.Now().Add(preSignTTL),
+		})
 	}
+	log.Info("UploadHandler:Presign:Presigned upload urls generated successfully", "Total files", len(uploads))
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(uploads); err != nil {
+		log.Error("UploadHandler:Presign:EncodingResponse:Failed to encode the response", "error", err)
+		httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 
-	w.Write([]byte("Presign endpoint"))
+	_ = json.NewEncoder(w).Encode(PreSignResponse{Uploads: uploads})
 }
