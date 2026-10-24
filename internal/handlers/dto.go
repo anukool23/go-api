@@ -16,6 +16,7 @@ type CreateListingRequest struct {
 type CreateListingResponse struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
+	Status    string `json:"status"`
 	CreatedAt string `json:"created_at"`
 }
 

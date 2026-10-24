@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github/com/anukool23/olx-api/internal/httpx"
+	"github/com/anukool23/olx-api/internal/jobs"
 	"github/com/anukool23/olx-api/internal/middleware"
 	"github/com/anukool23/olx-api/internal/storage"
 	"log"
@@ -29,11 +30,6 @@ type ListingHandler struct {
 	db      *sql.DB
 	logger  *slog.Logger
 	storage *storage.Client
-}
-
-type imageSource struct {
-	Uploadkey string `json:"upload_key"` //path before processing (Uploaded path)
-	ObjectKey string `json:"object_key"` //path after processing (Processed path)
 }
 
 func NewListingHandler(db *sql.DB, logger *slog.Logger, storage *storage.Client) *ListingHandler {
@@ -123,7 +119,7 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	listingId := uuid.New()
-	sources := make([]imageSource, 0, len(req.ImageKeys))
+	sources := make([]jobs.ImageSource, 0, len(req.ImageKeys))
 	for _, key := range req.ImageKeys {
 		imageId, ext, err := parseUploadKeys(key, userId)
 		if err != nil {
@@ -131,7 +127,7 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusUnprocessableEntity, "Invalid image key", httpx.CodeValidationError)
 			return
 		}
-		sources = append(sources, imageSource{
+		sources = append(sources, jobs.ImageSource{
 			Uploadkey: key,
 			ObjectKey: mintFinalObjectKey(listingId, imageId, ext),
 		})
@@ -160,16 +156,63 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 			httpx.ValidationError(w, http.StatusBadRequest, "Uploaded image content type mismatch", httpx.CodeValidationError, "image_keys")
 			return
 		}
-		
-
 	}
-	row := lh.db.QueryRowContext(ctx, `INSERT INTO listings (id, title, description, price, city, user_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, title,created_at`, listingId, req.Title, req.Description, req.Price, req.City, userId)
+
+	tx, err := lh.db.BeginTx(ctx, nil)
+	if err != nil {
+		lh.logger.Error("ListingHandler:Create:BeginTx Failed to start transaction", "requestId", requestId, "error", err)
+		httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
+		return
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	row := tx.QueryRowContext(ctx, `INSERT INTO listings (id, title, description, price, city, user_id) 
+	VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, title, status, created_at`,
+		listingId, req.Title, req.Description, req.Price, req.City, userId)
+
 	var outputResponse CreateListingResponse
-	if err := row.Scan(&outputResponse.ID, &outputResponse.Title, &outputResponse.CreatedAt); err != nil {
+	if err := row.Scan(&outputResponse.ID, &outputResponse.Title, &outputResponse.Status, &outputResponse.CreatedAt); err != nil {
 		lh.logger.Error("ListingHandler:Create:QueryRowContext:Failed to insert data into db", "requestId", requestId, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "Internal server error", httpx.CodeInternalError)
 		return
 	}
+
+	for i, s := range sources {
+		_, err := tx.ExecContext(ctx, `INSERT INTO images (listing_id, object_key, position) 
+		VALUES ($1, $2, $3)`, listingId, s.Uploadkey, int16(i))
+		if err != nil {
+			lh.logger.Error("ListingHandler:Create:ExecContext:Insertion of image is failed", "requestId", requestId, "err", err)
+			httpx.Error(w, http.StatusInternalServerError, "Internal server error", httpx.CodeInternalError)
+			return
+		}
+	}
+
+	payload, err := json.Marshal(jobs.ProcessImagePayload{
+		ListingId: listingId,
+		Sources: sources,
+	})
+	if err != nil {
+		lh.logger.Error("ListingHandler:Create:Marshal:Prepration of jobs payload is failed", "requestId", requestId, "err", err)
+		httpx.Error(w, http.StatusInternalServerError, "Internal server error", httpx.CodeInternalError)
+		return
+	}
+
+	_, err = tx.ExecContext(ctx, `INSERT INTO jobs (kind, payload) VALUES ($1,$2)`,jobs.KindProcessListingImage, payload)
+
+	if err != nil {
+		lh.logger.Error("ListingHandler:Create:KindProcessListingImage:Insert of jobs payload is failed", "requestId", requestId, "err", err)
+		httpx.Error(w, http.StatusInternalServerError, "Internal server error", httpx.CodeInternalError)
+		return
+	}
+
+	if err = tx.Commit(); err != nil {
+		lh.logger.Error("ListingHandler:Create:Commit:commit failed", "requestId", requestId, "err", err)
+		httpx.Error(w, http.StatusInternalServerError, "Internal server error", httpx.CodeInternalError)
+		return
+	}
+
 	lh.logger.Info("ListingHandler:Create: Listing created successfully", "requestId", requestId, "listing_id", outputResponse.ID)
 
 	w.Header().Set("Content-Type", "application/json")
