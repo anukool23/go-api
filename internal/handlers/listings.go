@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github/com/anukool23/olx-api/internal/httpx"
 	"github/com/anukool23/olx-api/internal/middleware"
+	"github/com/anukool23/olx-api/internal/storage"
 	"log"
 	"log/slog"
 	"net/http"
@@ -25,14 +26,21 @@ type listing struct {
 }
 
 type ListingHandler struct {
-	db     *sql.DB
-	logger *slog.Logger
+	db      *sql.DB
+	logger  *slog.Logger
+	storage *storage.Client
 }
 
-func NewListingHandler(db *sql.DB, logger *slog.Logger) *ListingHandler {
+type imageSource struct {
+	Uploadkey string `json:"upload_key"` //path before processing (Uploaded path)
+	ObjectKey string `json:"object_key"` //path after processing (Processed path)
+}
+
+func NewListingHandler(db *sql.DB, logger *slog.Logger, storage *storage.Client) *ListingHandler {
 	return &ListingHandler{
-		db:     db,
-		logger: logger,
+		db:      db,
+		logger:  logger,
+		storage: storage,
 	}
 }
 
@@ -114,7 +122,48 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.ValidationError(w, http.StatusUnprocessableEntity, err.Error(), httpx.CodeValidationError, verr.Field)
 		return
 	}
-	row := lh.db.QueryRowContext(ctx, `INSERT INTO listings (title, description, price, city, user_id) VALUES ($1,$2,$3,$4,$5) RETURNING id, title,created_at`, req.Title, req.Description, req.Price, req.City, userId)
+	listingId := uuid.New()
+	sources := make([]imageSource, 0, len(req.ImageKeys))
+	for _, key := range req.ImageKeys {
+		imageId, ext, err := parseUploadKeys(key, userId)
+		if err != nil {
+			lh.logger.Error("ListingHandler:Create:Failed to parse upload key", "requestId", requestId, "err", err)
+			httpx.Error(w, http.StatusUnprocessableEntity, "Invalid image key", httpx.CodeValidationError)
+			return
+		}
+		sources = append(sources, imageSource{
+			Uploadkey: key,
+			ObjectKey: mintFinalObjectKey(listingId, imageId, ext),
+		})
+	}
+
+	for _, s := range sources {
+		lh.logger.Info("ListingHandler:Create:Image source", "requestId", requestId, "upload_key", s.Uploadkey, "object_key", s.ObjectKey)
+		contentLength, contentType, err := lh.storage.Head(ctx, s.Uploadkey)
+		if errors.Is(err, storage.ErrNotFound) {
+			lh.logger.Error("ListingHandler:Create:ErrNotFound:Failed to parse upload key in source", "requestId", requestId, "err", err)
+			httpx.ValidationError(w, http.StatusInternalServerError, "No object found at Object key", httpx.CodeInternalError, "image_keys")
+			return
+		}
+		if err != nil {
+			lh.logger.Error("ListingHandler:Create:Failed to parse upload key in source", "requestId", requestId, "err", err)
+			httpx.ValidationError(w, http.StatusBadRequest, "No object found at Object key", httpx.CodeBadRequest, "image_keys")
+			return
+		}
+		if contentLength <= 0 || contentLength > maxImageBytes {
+			lh.logger.Error("ListingHandler:Create:Image size is out of range", "requestId", requestId)
+			httpx.ValidationError(w, http.StatusBadRequest, "Uploaded image is out of size limit range", httpx.CodeValidationError, "image_keys")
+			return
+		}
+		if _, ok := allowedContentTypes[contentType]; !ok {
+			lh.logger.Error("ListingHandler:Create:Uploaded image content type mismatch", "requestId", requestId)
+			httpx.ValidationError(w, http.StatusBadRequest, "Uploaded image content type mismatch", httpx.CodeValidationError, "image_keys")
+			return
+		}
+		
+
+	}
+	row := lh.db.QueryRowContext(ctx, `INSERT INTO listings (id, title, description, price, city, user_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, title,created_at`, listingId, req.Title, req.Description, req.Price, req.City, userId)
 	var outputResponse CreateListingResponse
 	if err := row.Scan(&outputResponse.ID, &outputResponse.Title, &outputResponse.CreatedAt); err != nil {
 		lh.logger.Error("ListingHandler:Create:QueryRowContext:Failed to insert data into db", "requestId", requestId, "err", err)

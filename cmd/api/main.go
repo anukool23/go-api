@@ -43,7 +43,7 @@ func main() {
 	logger := slog.New(logHandler)
 	slog.SetDefault(logger)
 
-	lh := handlers.NewListingHandler(db, logger)
+	lh := handlers.NewListingHandler(db, logger, storage)
 	ah := handlers.NewAuthHandler(db, logger, cfg)
 	uh := handlers.NewUploadHandler(logger, storage)
 

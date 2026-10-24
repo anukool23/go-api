@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,12 +10,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go"
 )
 
 type Client struct {
 	client    *s3.Client
 	preSginer *s3.PresignClient
-	bucket          string
+	bucket    string
 }
 
 type R2Config struct {
@@ -23,6 +25,8 @@ type R2Config struct {
 	AccessKeySecret string
 	Bucket          string
 }
+
+var ErrNotFound = errors.New("storage: object not found")
 
 func NewR2(ctx context.Context, cfg R2Config) (*Client, error) {
 	r2Cfg, err := config.LoadDefaultConfig(ctx, config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.AccessKeySecret, "")),
@@ -39,15 +43,15 @@ func NewR2(ctx context.Context, cfg R2Config) (*Client, error) {
 	return &Client{
 		client:    client,
 		preSginer: preSignClient,
-		bucket   :      cfg.Bucket,
+		bucket:    cfg.Bucket,
 	}, nil
 }
 
-func (c *Client) PreSignUpload(ctx context.Context, key, contentType string, contentLength int64, expiry time.Duration)(string, error) {
+func (c *Client) PreSignUpload(ctx context.Context, key, contentType string, contentLength int64, expiry time.Duration) (string, error) {
 	req, err := c.preSginer.PresignPutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(c.bucket),
-		Key:         aws.String(key),
-		ContentType: aws.String(contentType),
+		Bucket:        aws.String(c.bucket),
+		Key:           aws.String(key),
+		ContentType:   aws.String(contentType),
 		ContentLength: aws.Int64(contentLength),
 	}, func(opts *s3.PresignOptions) {
 		opts.Expires = expiry
@@ -56,4 +60,35 @@ func (c *Client) PreSignUpload(ctx context.Context, key, contentType string, con
 		return "", fmt.Errorf("Storage: PreSignUpload: Failed to presign upload request :key-%s,  error-%w", key, err)
 	}
 	return req.URL, nil
+}
+
+func (c *Client) Head(ctx context.Context, key string) (contentLength int64, contentType string, err error) {
+	out, err := c.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		if isNotFoundError(err) {
+			return 0, "", ErrNotFound
+		}
+		return 0, "", fmt.Errorf("Storage: Head: Failed to head object :key-%q,  error-%w", key, err)
+	}
+	if out.ContentLength != nil {
+		contentLength = *out.ContentLength
+	}
+	if out.ContentType != nil {
+		contentType = *out.ContentType
+	}
+	return contentLength, contentType, nil
+}
+
+func isNotFoundError(err error) bool {
+	var ae smithy.APIError
+	if errors.As(err, &ae) {
+		switch ae.ErrorCode() {
+		case "NotFound", "NoSuchKey":
+			return true
+		}
+	}
+	return false
 }
