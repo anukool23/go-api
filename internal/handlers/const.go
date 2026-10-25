@@ -34,7 +34,7 @@ func mintUploadKey(userId uuid.UUID, ext string) string {
 }
 
 func mintFinalObjectKey(listingId, imageId uuid.UUID) string {
-	return fmt.Sprintf("%s/%s/%s.%s", listingPrefix, listingId, mintImagekey(imageId))
+	return fmt.Sprintf("%s/%s/%s", listingPrefix, listingId, mintImagekey(imageId))
 }
 
 func parseUploadKeys(key string, userId uuid.UUID) (uuid.UUID, string, error) {
