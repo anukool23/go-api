@@ -18,7 +18,8 @@ const (
 )
 
 var allowedContentTypes = map[string]string{
-	"image/jpeg": "jpg",
+	"image/jpeg": "jpeg",
+	"image/jpg":  "jpg",
 	"image/png":  "png",
 	"image/webp": "webp",
 }
@@ -31,13 +32,13 @@ func mintFinalObjectKey(listingId, imageId uuid.UUID, ext string) string {
 	return fmt.Sprintf("%s/%s/%s.%s", listingPrefix, listingId, imageId, ext)
 }
 
-func parseUploadKeys(key string, userId uuid.UUID) (uuid.UUID, string,  error) {
+func parseUploadKeys(key string, userId uuid.UUID) (uuid.UUID, string, error) {
 	rest, ok := strings.CutPrefix(key, fmt.Sprintf("%s/%s/", uploadPrefix, userId))
 	if !ok {
-		return uuid.Nil, "",  errors.New("invalid key format")
+		return uuid.Nil, "", errors.New("invalid key format")
 	}
-	if !strings.Contains(rest, "/") {
-		return uuid.Nil,"",  errors.New("Object key has unexpected shape")
+	if strings.Contains(rest, "/") {
+		return uuid.Nil, "", errors.New("Object key has unexpected shape")
 	}
 	base, ext, ok := strings.Cut(rest, ".")
 	if !ok || !allowedExt(ext) {
