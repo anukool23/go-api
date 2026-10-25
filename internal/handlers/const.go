@@ -15,6 +15,7 @@ const (
 	uploadPrefix               = "uploads"
 	listingPrefix              = "listings"
 	preSignTTL                 = 5 * time.Minute
+	imageExt                   = "jpg" //currently we convert all the images to jpeg, later we will implement others format.
 )
 
 var allowedContentTypes = map[string]string{
@@ -24,12 +25,16 @@ var allowedContentTypes = map[string]string{
 	"image/webp": "webp",
 }
 
+func mintImagekey(imageId uuid.UUID) string {
+	return fmt.Sprintf("%s.%s", imageId, imageExt)
+}
+
 func mintUploadKey(userId uuid.UUID, ext string) string {
 	return fmt.Sprintf("%s/%s/%s.%s", uploadPrefix, userId, uuid.New(), ext)
 }
 
-func mintFinalObjectKey(listingId, imageId uuid.UUID, ext string) string {
-	return fmt.Sprintf("%s/%s/%s.%s", listingPrefix, listingId, imageId, ext)
+func mintFinalObjectKey(listingId, imageId uuid.UUID) string {
+	return fmt.Sprintf("%s/%s/%s.%s", listingPrefix, listingId, mintImagekey(imageId))
 }
 
 func parseUploadKeys(key string, userId uuid.UUID) (uuid.UUID, string, error) {

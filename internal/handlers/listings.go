@@ -120,16 +120,18 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	listingId := uuid.New()
 	sources := make([]jobs.ImageSource, 0, len(req.ImageKeys))
+	imagekeys := make([]string, 0, len(req.ImageKeys))
 	for _, key := range req.ImageKeys {
-		imageId, ext, err := parseUploadKeys(key, userId)
+		imageId, _ , err := parseUploadKeys(key, userId)
 		if err != nil {
 			lh.logger.Error("ListingHandler:Create:Failed to parse upload key", "requestId", requestId, "err", err)
 			httpx.Error(w, http.StatusUnprocessableEntity, "Invalid image key", httpx.CodeValidationError)
 			return
 		}
+		imagekeys = append(imagekeys, mintImagekey(imageId))
 		sources = append(sources, jobs.ImageSource{
 			Uploadkey: key,
-			ObjectKey: mintFinalObjectKey(listingId, imageId, ext),
+			ObjectKey: mintFinalObjectKey(listingId, imageId),
 		})
 	}
 
@@ -179,11 +181,11 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for i, s := range sources {
+	for i, imageKey := range imagekeys {
 		_, err := tx.ExecContext(ctx, `INSERT INTO images (listing_id, object_key, position) 
-		VALUES ($1, $2, $3)`, listingId, s.Uploadkey, int16(i))
+		VALUES ($1, $2, $3)`, listingId, imageKey, int16(i))
 		if err != nil {
-			lh.logger.Error("ListingHandler:Create:ExecContext:Insertion of image is failed", "requestId", requestId, "err", err)
+			lh.logger.Error("ListingHandler:Create:ExecContext:Insertion of image is failed", "requestId", "imageKey",imageKey,requestId, "err", err)
 			httpx.Error(w, http.StatusInternalServerError, "Internal server error", httpx.CodeInternalError)
 			return
 		}
