@@ -7,6 +7,7 @@ import (
 	"github/com/anukool23/olx-api/internal/handlers"
 	"github/com/anukool23/olx-api/internal/middleware"
 	"github/com/anukool23/olx-api/internal/storage"
+	"github/com/anukool23/olx-api/internal/worker"
 	"log"
 	"log/slog"
 	"net/http"
@@ -32,9 +33,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("main:storage:r2 %v", err)
 	}
-
 	log.Printf("Storage initalized")
-	log.Printf("Starting olx server...")
 
 	logHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		AddSource: true,
@@ -42,6 +41,13 @@ func main() {
 	})
 	logger := slog.New(logHandler)
 	slog.SetDefault(logger)
+
+
+	wrk := worker.New(db, storage, logger)
+	wrk.Run()
+	log.Print("Worker started")
+
+	log.Printf("Starting olx server...")
 
 	lh := handlers.NewListingHandler(db, logger, storage)
 	ah := handlers.NewAuthHandler(db, logger, cfg)
