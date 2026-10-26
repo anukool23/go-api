@@ -23,12 +23,11 @@ func main() {
 	}
 	log.Printf("Database connected successfully...")
 
-	storage, err := storage.NewR2(context.TODO(),storage.R2Config{
-		AccountId : cfg.StorageAccountId,
-		AccessKeyID: cfg.StorageAccessKey,
+	storage, err := storage.NewR2(context.TODO(), storage.R2Config{
+		AccountId:       cfg.StorageAccountId,
+		AccessKeyID:     cfg.StorageAccessKey,
 		AccessKeySecret: cfg.StorageAccessSecret,
-		Bucket: cfg.StorageBucket,
-
+		Bucket:          cfg.StorageBucket,
 	})
 	if err != nil {
 		log.Fatalf("main:storage:r2 %v", err)
@@ -42,9 +41,8 @@ func main() {
 	logger := slog.New(logHandler)
 	slog.SetDefault(logger)
 
-
-	wrk := worker.New(db, storage, logger)
-	wrk.Run()
+	wrker := worker.New(db, storage, logger)
+	go wrker.Run(context.TODO())
 	log.Print("Worker started")
 
 	log.Printf("Starting olx server...")
@@ -63,7 +61,7 @@ func main() {
 	mux.Handle("GET /mylistings", authMiddleware(http.HandlerFunc(lh.MyListings)))
 	mux.HandleFunc("POST /signup", ah.SignUp)
 	mux.HandleFunc("POST /signin", ah.SignIn)
-	mux.Handle("POST /uploads/presign",authMiddleware(http.HandlerFunc(uh.Presign)))
+	mux.Handle("POST /uploads/presign", authMiddleware(http.HandlerFunc(uh.Presign)))
 
 	handler := middleware.RequestId(mux)
 	srv := &http.Server{
