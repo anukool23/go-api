@@ -6,6 +6,8 @@ run: build
 	@./bin/api
 dev:
 	@go run ./cmd/api
+vet:
+	@go vet ./...
 migrate-up:
 	go run ./cmd/migrate up
 migrate-down:

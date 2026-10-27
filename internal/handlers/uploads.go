@@ -77,11 +77,6 @@ func (uh UploadHandler) Presign(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Info("UploadHandler:Presign:Presigned upload urls generated successfully", "Total files", len(uploads))
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(uploads); err != nil {
-		log.Error("UploadHandler:Presign:EncodingResponse:Failed to encode the response", "error", err)
-		httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
-		return
-	}
 	w.WriteHeader(http.StatusAccepted)
 
 	_ = json.NewEncoder(w).Encode(PreSignResponse{Uploads: uploads})
