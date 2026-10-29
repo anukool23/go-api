@@ -3,6 +3,9 @@ package handlers
 import (
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 type CreateListingRequest struct {
@@ -23,6 +26,24 @@ type CreateListingResponse struct {
 type ValidationError struct {
 	Field   string
 	Message string
+}
+
+type ImageResponse struct {
+	ID        string `json:"id"`
+	ObjectKey string `json:"object_key"`
+	Position  int16  `json:"position"`
+}
+
+type GetListingResponse struct {
+	ID          string          `json:"id"`
+	Title       string          `json:"title"`
+	Description string          `json:"description"`
+	Price       int64           `json:"price"`
+	City        string          `json:"city"`
+	Status      string          `json:"status"`
+	Userid      uuid.UUID       `json:"user_id"`
+	Images      []ImageResponse `json:"images"`
+	CreatedAt   time.Time       `json:"created_at"`
 }
 
 func (ve ValidationError) Error() string {

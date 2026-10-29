@@ -26,6 +26,12 @@ type listing struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+type imageRow struct {
+	ID        uuid.UUID
+	ObjectKey string
+	Position  int16
+}
+
 type ListingHandler struct {
 	db      *sql.DB
 	logger  *slog.Logger
@@ -43,29 +49,26 @@ func NewListingHandler(db *sql.DB, logger *slog.Logger, storage *storage.Client)
 func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	requestId := middleware.RequestIdFromContext(ctx)
-	rows, err := lh.db.QueryContext(ctx,
-		`SELECT id, title, description, price, city, created_at 
-				FROM listings
-				ORDER BY created_at DESC LIMIT 100`)
+	log := lh.logger.With("requestId", requestId)
+	rows, err := lh.db.QueryContext(ctx, `
+	SELECT l.id, l.title, l.description, l.price, l.city, l.status, l.created_at, l.user_id, i.id as imageId, i.object_key, i.position
+	FROM listings l
+	LEFT JOIN images i ON i.listing_id = l.id
+	WHERE l.id IN (
+		SELECT id FROM listings ORDER BY created_at DESC, id DESC LIMIT $1
+	)
+	ORDER BY l.created_at DESC, l.id DESC, i.position`, MaxMyListings)
 	if err != nil {
-		lh.logger.Error("List:QueryContext: ", "requestId", requestId, "err", err)
-		http.Error(w, "Failed to fetch listings", http.StatusInternalServerError)
+		log.Error("my listings query error", "err", err)
+		httpx.Error(w, http.StatusInternalServerError, "something went wrong", httpx.CodeInternalError)
 		return
 	}
 	defer rows.Close()
-	listings := []listing{}
-	for rows.Next() {
-		var l listing
-		if err := rows.Scan(&l.ID, &l.Title, &l.Description, &l.Price, &l.City, &l.CreatedAt); err != nil {
-			log.Printf("rows.scan : Failed to scan listing: %v", err)
-			http.Error(w, "Failed to fetch listings", http.StatusInternalServerError)
-			return
-		}
-		listings = append(listings, l)
-	}
-	if err := rows.Err(); err != nil {
-		log.Printf("rows.err : Failed to iterate over listings: %v", err)
-		http.Error(w, "Failed to fetch listings", http.StatusInternalServerError)
+
+	listings, err := lh.collapse(rows)
+	if err != nil {
+		lh.logger.Error("Listing Handler : List : Collapse : Error from collapse", "err", err)
+		httpx.Error(w, http.StatusInternalServerError, "Failed to fetch listings", httpx.CodeInternalError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -122,7 +125,7 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 	sources := make([]jobs.ImageSource, 0, len(req.ImageKeys))
 	imagekeys := make([]string, 0, len(req.ImageKeys))
 	for _, key := range req.ImageKeys {
-		imageId, _ , err := parseUploadKeys(key, userId)
+		imageId, _, err := parseUploadKeys(key, userId)
 		if err != nil {
 			lh.logger.Error("ListingHandler:Create:Failed to parse upload key", "requestId", requestId, "err", err)
 			httpx.Error(w, http.StatusUnprocessableEntity, "Invalid image key", httpx.CodeValidationError)
@@ -185,7 +188,7 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 		_, err := tx.ExecContext(ctx, `INSERT INTO images (listing_id, object_key, position) 
 		VALUES ($1, $2, $3)`, listingId, imageKey, int16(i))
 		if err != nil {
-			lh.logger.Error("ListingHandler:Create:ExecContext:Insertion of image is failed", "requestId", "imageKey",imageKey,requestId, "err", err)
+			lh.logger.Error("ListingHandler:Create:ExecContext:Insertion of image is failed", "requestId", "imageKey", imageKey, requestId, "err", err)
 			httpx.Error(w, http.StatusInternalServerError, "Internal server error", httpx.CodeInternalError)
 			return
 		}
@@ -193,7 +196,7 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	payload, err := json.Marshal(jobs.ProcessImagePayload{
 		ListingId: listingId,
-		Sources: sources,
+		Sources:   sources,
 	})
 	if err != nil {
 		lh.logger.Error("ListingHandler:Create:Marshal:Prepration of jobs payload is failed", "requestId", requestId, "err", err)
@@ -201,7 +204,7 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.ExecContext(ctx, `INSERT INTO jobs (kind, payload) VALUES ($1,$2)`,jobs.KindProcessListingImage, payload)
+	_, err = tx.ExecContext(ctx, `INSERT INTO jobs (kind, payload) VALUES ($1,$2)`, jobs.KindProcessListingImage, payload)
 
 	if err != nil {
 		lh.logger.Error("ListingHandler:Create:KindProcessListingImage:Insert of jobs payload is failed", "requestId", requestId, "err", err)
@@ -261,4 +264,49 @@ func (lh ListingHandler) MyListings(w http.ResponseWriter, r *http.Request) {
 
 	_ = json.NewEncoder(w).Encode(listings)
 
+}
+
+func (lh ListingHandler) collapse(rows *sql.Rows) ([]GetListingResponse, error) {
+	listings := []GetListingResponse{}
+	images := map[string][]imageRow{}
+	seen := make(map[string]struct{})
+	for rows.Next() {
+		var l GetListingResponse
+		var imageId uuid.NullUUID
+		var objKey sql.NullString
+		var position sql.NullInt16
+		if err := rows.Scan(&l.ID, &l.Title, &l.Description, &l.Price, &l.City,&l.Status, &l.CreatedAt, &l.Userid, &imageId, &objKey, &position); err != nil {
+			lh.logger.Error("rows.scan : Failed to scan listing: %v", err)
+			return nil, err
+		}
+		if _, ok := seen[l.ID]; !ok {
+			seen[l.ID] = struct{}{}
+			listings = append(listings, l)
+		}
+		if imageId.Valid && objKey.Valid && position.Valid {
+			images[l.ID] = append(images[l.ID], imageRow{
+				ID:        imageId.UUID,
+				ObjectKey: objKey.String,
+				Position:  position.Int16,
+			})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range listings {
+		listings[i].Images = lh.toImageResponse(images[listings[i].ID])
+	}
+	return listings, nil
+}
+
+func (lh ListingHandler) toImageResponse(imageRow []imageRow) []ImageResponse {
+	out := make([]ImageResponse, 0, len(imageRow))
+	for _, img := range imageRow {
+		out = append(out, ImageResponse{
+			ID:        img.ID.String(),
+			ObjectKey: img.ObjectKey,
+			Position:  img.Position})
+	}
+	return out
 }

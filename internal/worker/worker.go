@@ -67,7 +67,7 @@ func (w *Worker) claimAndProcess(ctx context.Context) (bool, error) {
 		payload  []byte
 		attempts int64
 	)
-	w.logger.Info("Checking new job")
+	// w.logger.Info("Checking new job")
 	err := w.db.QueryRowContext(ctx, `
 	UPDATE jobs
 		SET attempts = attempts + 1,
@@ -84,7 +84,7 @@ func (w *Worker) claimAndProcess(ctx context.Context) (bool, error) {
 		RETURNING id, kind, payload, attempts`, maxAttempts).Scan(&id, &kind, &payload, &attempts)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		w.logger.Info("Queue is empty", "retry", pollInterval)
+		// w.logger.Info("Queue is empty", "retry", pollInterval)
 		return true, nil
 	}
 	if err != nil {

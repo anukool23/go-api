@@ -10,11 +10,12 @@ import (
 )
 
 const (
-	maximumFilesCountInRequest = 10 //maximum number of files in one listing
+	maximumFilesCountInRequest = 10              //maximum number of files in one listing
 	maxImageBytes              = 5 * 1024 * 1024 //bytes
 	uploadPrefix               = "uploads"
 	listingPrefix              = "listings"
 	preSignTTL                 = 5 * time.Minute //5 minutes
+	MaxMyListings              = 2
 	imageExt                   = "jpg" //currently we convert all the images to jpeg, later we will implement others format.
 )
 
