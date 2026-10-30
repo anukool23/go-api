@@ -104,12 +104,6 @@ func (lh ListingHandler)ListingDetail(w http.ResponseWriter, r * http.Request){
 	ctx := r.Context()
 	requestId := middleware.RequestIdFromContext(ctx)
 	log := lh.logger.With("requestId", requestId)
-	userId, ok := middleware.UserIdFromContext(ctx)
-	if !ok {
-		log.Error("ListingHandler:Create:Failed to get user id from context")
-		httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
-		return
-	}
 	rows, err := lh.db.QueryContext(ctx, `
 	SELECT
         l.id,
@@ -125,8 +119,8 @@ func (lh ListingHandler)ListingDetail(w http.ResponseWriter, r * http.Request){
         i.position
     FROM listings l
     LEFT JOIN images i ON i.listing_id = l.id
-    WHERE l.id = $1 AND l.user_id = $2
-    ORDER BY l.created_at DESC, l.id DESC, i.position`, id, userId)
+    WHERE l.id = $1
+    ORDER BY l.created_at DESC, l.id DESC, i.position`, id)
 	if err != nil {
 		log.Error("my listings query error", "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "something went wrong", httpx.CodeInternalError)
