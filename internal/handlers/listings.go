@@ -99,6 +99,58 @@ func (lh ListingHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func (lh ListingHandler)ListingDetail(w http.ResponseWriter, r * http.Request){
+	id := r.PathValue("id")
+	ctx := r.Context()
+	requestId := middleware.RequestIdFromContext(ctx)
+	log := lh.logger.With("requestId", requestId)
+	userId, ok := middleware.UserIdFromContext(ctx)
+	if !ok {
+		log.Error("ListingHandler:Create:Failed to get user id from context")
+		httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
+		return
+	}
+	rows, err := lh.db.QueryContext(ctx, `
+	SELECT
+        l.id,
+        l.title,
+        l.description,
+        l.price,
+        l.city,
+        l.status,
+        l.created_at,
+        l.user_id,
+        i.id AS imageId,
+        i.object_key,
+        i.position
+    FROM listings l
+    LEFT JOIN images i ON i.listing_id = l.id
+    WHERE l.id = $1 AND l.user_id = $2
+    ORDER BY l.created_at DESC, l.id DESC, i.position`, id, userId)
+	if err != nil {
+		log.Error("my listings query error", "err", err)
+		httpx.Error(w, http.StatusInternalServerError, "something went wrong", httpx.CodeInternalError)
+		return
+	}
+	defer rows.Close()
+
+	listings, err := lh.collapse(rows)
+	if err != nil {
+		lh.logger.Error("Listing Handler : List : Collapse : Error from collapse", "err", err)
+		httpx.Error(w, http.StatusInternalServerError, "Failed to fetch listings", httpx.CodeInternalError)
+		return
+	}
+	if len(listings) == 0 {
+    httpx.Error(w, http.StatusNotFound, "Listing not found", httpx.CodeNotFound)
+    return
+}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	_ = json.NewEncoder(w).Encode(listings[0])
+
+}
+
 func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	requestId := middleware.RequestIdFromContext(ctx)
