@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 func main() {
@@ -51,6 +53,10 @@ func main() {
 	ah := handlers.NewAuthHandler(db, logger, cfg)
 	uh := handlers.NewUploadHandler(logger, storage)
 
+	globalRateLimit := middleware.RateLimit(logger, rate.Every(time.Second),100)
+	signInLimiter := middleware.RateLimit(logger,rate.Every(time.Second*12),5)
+	signUpLimiter := middleware.RateLimit(logger,rate.Every(time.Minute),2)
+
 	authMiddleware := middleware.RequireAuth(logger, cfg.JwtKey)
 
 	mux := http.NewServeMux()
@@ -60,11 +66,11 @@ func main() {
 	mux.Handle("DELETE /listings/{id}", authMiddleware(http.HandlerFunc(lh.Delete)))
 	mux.Handle("POST /listings", authMiddleware(http.HandlerFunc(lh.Create)))
 	mux.Handle("GET /mylistings", authMiddleware(http.HandlerFunc(lh.MyListings)))
-	mux.HandleFunc("POST /signup", ah.SignUp)
-	mux.HandleFunc("POST /signin", ah.SignIn)
+	mux.Handle("POST /signup", signUpLimiter(http.HandlerFunc(ah.SignUp)))
+	mux.Handle("POST /signin", signInLimiter(http.HandlerFunc(ah.SignIn)))
 	mux.Handle("POST /uploads/presign", authMiddleware(http.HandlerFunc(uh.Presign)))
 
-	handler := middleware.RequestId(mux)
+	handler := globalRateLimit(middleware.RequestId(mux))
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      handler,
