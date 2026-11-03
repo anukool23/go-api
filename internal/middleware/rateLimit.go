@@ -53,7 +53,7 @@ func RateLimit(logger *slog.Logger, limit rate.Limit, burst int) func(next http.
 		burst: burst,
 	}
 	//cleanum go routine
-	go l.cleanup()
+	go l.cleanup(logger)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			//Executes on every requests
@@ -85,7 +85,8 @@ func clientIP(r *http.Request, trustedHeader string) string {
 	return ip
 }
 
-func (l *limiter) cleanup() {
+func (l *limiter) cleanup(logger *slog.Logger) {
+	logger.Info("RateLimit:Cleanup:Cleanup functiomn called")
 	ticker := time.NewTicker(cleanupInterval)
 	l.mu.Lock()
 	defer ticker.Stop()
