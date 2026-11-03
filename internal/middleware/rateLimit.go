@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
+	"golang.org/x/tools/go/analysis/passes/defers"
 )
 
 const (
@@ -23,12 +25,15 @@ type bucket struct {
 }
 
 type limiter struct {
+	mu sync.Mutex
 	items map[string]*bucket
 	limit rate.Limit
 	burst int
 }
 
-func (l limiter) allow(key string)bool {
+func (l *limiter) allow(key string)bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	item, ok := l.items[key]
 	if !ok {
 		item = &bucket{limiter: rate.NewLimiter(l.limit,l.burst)}
