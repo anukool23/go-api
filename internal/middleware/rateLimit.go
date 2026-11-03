@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
-	"golang.org/x/tools/go/analysis/passes/defers"
 )
 
 const (
@@ -25,18 +24,18 @@ type bucket struct {
 }
 
 type limiter struct {
-	mu sync.Mutex
+	mu    sync.Mutex
 	items map[string]*bucket
 	limit rate.Limit
 	burst int
 }
 
-func (l *limiter) allow(key string)bool {
+func (l *limiter) allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	item, ok := l.items[key]
 	if !ok {
-		item = &bucket{limiter: rate.NewLimiter(l.limit,l.burst)}
+		item = &bucket{limiter: rate.NewLimiter(l.limit, l.burst)}
 		l.items[key] = item
 	}
 	item.lastSeen = time.Now()
@@ -56,14 +55,14 @@ func RateLimit(logger *slog.Logger, limit rate.Limit, burst int) func(next http.
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			//Executes on every requests
 			userIP := clientIP(r, trustedHeader)
-			if !l.allow(userIP){
-				logger.Info("RateLimit:allow","key", userIP, "user_ip",userIP, "path", r.URL.Path,"request_id", RequestIdFromContext(r.Context()))
+			if !l.allow(userIP) {
+				logger.Info("RateLimit:allow", "key", userIP, "user_ip", userIP, "path", r.URL.Path, "request_id", RequestIdFromContext(r.Context()))
 				retryAfter := "1"
-				if limit>0 && limit < 1 {
-					retryAfter = strconv.Itoa(int(math.Ceil(float64(1/limit))))
+				if limit > 0 && limit < 1 {
+					retryAfter = strconv.Itoa(int(math.Ceil(float64(1 / limit))))
 				}
-				w.Header().Set("Retry-After",retryAfter)
-				logger.Info("RateLimit:Header","key", userIP, "user_ip",userIP, "path", r.URL.Path,"request_id", RequestIdFromContext(r.Context()))
+				w.Header().Set("Retry-After", retryAfter)
+				logger.Info("RateLimit:Header", "key", userIP, "user_ip", userIP, "path", r.URL.Path, "request_id", RequestIdFromContext(r.Context()))
 				httpx.Error(w, http.StatusTooManyRequests, "Too many requests, Try after sometime", httpx.CodeRateLimitExceeded)
 				return
 			}
@@ -72,7 +71,7 @@ func RateLimit(logger *slog.Logger, limit rate.Limit, burst int) func(next http.
 	}
 }
 
-func clientIP(r *http.Request, trustedHeader string)string{
+func clientIP(r *http.Request, trustedHeader string) string {
 	if trustedHeader != "" {
 		return strings.TrimSpace(r.Header.Get(trustedHeader))
 	}
