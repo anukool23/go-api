@@ -48,6 +48,9 @@ func NewListingHandler(db *sql.DB, logger *slog.Logger, storage *storage.Client)
 
 func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	// For testing purpose only, uncomment the below line to simulate a delay in response
+	// lh.db.QueryContext(ctx, `SELECT pg_sleep(10)`)
+
 	requestId := middleware.RequestIdFromContext(ctx)
 	log := lh.logger.With("requestId", requestId)
 	rows, err := lh.db.QueryContext(ctx, `
@@ -99,7 +102,7 @@ func (lh ListingHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (lh ListingHandler)ListingDetail(w http.ResponseWriter, r * http.Request){
+func (lh ListingHandler) ListingDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ctx := r.Context()
 	requestId := middleware.RequestIdFromContext(ctx)
@@ -135,9 +138,9 @@ func (lh ListingHandler)ListingDetail(w http.ResponseWriter, r * http.Request){
 		return
 	}
 	if len(listings) == 0 {
-    httpx.Error(w, http.StatusNotFound, "Listing not found", httpx.CodeNotFound)
-    return
-}
+		httpx.Error(w, http.StatusNotFound, "Listing not found", httpx.CodeNotFound)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
@@ -321,7 +324,7 @@ func (lh ListingHandler) collapse(rows *sql.Rows) ([]GetListingResponse, error) 
 		var imageId uuid.NullUUID
 		var objKey sql.NullString
 		var position sql.NullInt16
-		if err := rows.Scan(&l.ID, &l.Title, &l.Description, &l.Price, &l.City,&l.Status, &l.CreatedAt, &l.Userid, &imageId, &objKey, &position); err != nil {
+		if err := rows.Scan(&l.ID, &l.Title, &l.Description, &l.Price, &l.City, &l.Status, &l.CreatedAt, &l.Userid, &imageId, &objKey, &position); err != nil {
 			lh.logger.Error("rows.scan : Failed to scan listing: %v", err)
 			return nil, err
 		}

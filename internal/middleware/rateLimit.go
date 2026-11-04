@@ -53,11 +53,12 @@ func RateLimit(logger *slog.Logger, limit rate.Limit, burst int) func(next http.
 		burst: burst,
 	}
 	//cleanum go routine
-	go l.cleanup(logger)
+	go l.cleanup()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			//Executes on every requests
-			userIP := clientIP(r, trustedHeader)
+			userIP := clientIP(r, trustedHeader, logger)
+			logger.Info("RateLimit:userId:User IP found", "IP", userIP)
 			if !l.allow(userIP) {
 				logger.Info("RateLimit:allow", "key", userIP, "user_ip", userIP, "path", r.URL.Path, "request_id", RequestIdFromContext(r.Context()))
 				retryAfter := "1"
@@ -69,12 +70,14 @@ func RateLimit(logger *slog.Logger, limit rate.Limit, burst int) func(next http.
 				httpx.Error(w, http.StatusTooManyRequests, "Too many requests, Try after sometime", httpx.CodeRateLimitExceeded)
 				return
 			}
+			logger.Info("RateLimit:userId:User IP found")
 			next.ServeHTTP(w, r)
 		})
 	}
 }
 
-func clientIP(r *http.Request, trustedHeader string) string {
+func clientIP(r *http.Request, trustedHeader string, logger *slog.Logger) string {
+	logger.Info("RateLimit:ClientIP:Client IP check inititated", "trusted header", trustedHeader)
 	if trustedHeader != "" {
 		return strings.TrimSpace(r.Header.Get(trustedHeader))
 	}
@@ -85,17 +88,18 @@ func clientIP(r *http.Request, trustedHeader string) string {
 	return ip
 }
 
-func (l *limiter) cleanup(logger *slog.Logger) {
-	logger.Info("RateLimit:Cleanup:Cleanup functiomn called")
+
+func (l *limiter) cleanup() {
 	ticker := time.NewTicker(cleanupInterval)
-	l.mu.Lock()
 	defer ticker.Stop()
+
 	for now := range ticker.C {
+		l.mu.Lock()
 		for key, item := range l.items {
 			if now.Sub(item.lastSeen) > bucketTtl {
 				delete(l.items, key)
 			}
 		}
+		l.mu.Unlock()
 	}
-	l.mu.Unlock()
 }
