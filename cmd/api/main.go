@@ -112,5 +112,5 @@ func main() {
 	}
 
 	db.Close()
-	logger.Info("Shutdown completed")
+	logger.Info("Shutdown completed....")
 }
