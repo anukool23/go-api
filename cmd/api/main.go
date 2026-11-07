@@ -108,7 +108,7 @@ func main() {
 	select {
 	case <-wrker.Done():
 	case <-time.After(workerShutDownTimeout):
-		logger.Warn("Worker is still busy, Exiting anyway")
+		logger.Warn("Worker is still busy, Exiting anyway...")
 	}
 
 	db.Close()
