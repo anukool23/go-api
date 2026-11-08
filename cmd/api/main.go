@@ -44,7 +44,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("main:storage:r2 %v", err)
 	}
-	log.Printf("Storage initalized")
+	log.Printf("Storage initialized successfully...")
 
 	logHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		AddSource: true,
@@ -55,9 +55,9 @@ func main() {
 
 	wrker := worker.New(db, storage, logger)
 	go wrker.Run(ctx)
-	log.Print("Worker started")
+	log.Print("Worker started...")
 
-	log.Printf("Starting olx server...")
+	log.Printf("Starting server...")
 
 	lh := handlers.NewListingHandler(db, logger, storage)
 	ah := handlers.NewAuthHandler(db, logger, cfg)
