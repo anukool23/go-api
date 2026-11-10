@@ -90,7 +90,7 @@ func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	after := r.URL.Query().Get("after")
-	rows, err := lh.queryListings(ctx, after, limit)
+	rows, err := lh.queryListings(ctx, after, limit+1)
 	if err != nil {
 		log.Error("my listings query error", "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "something went wrong", httpx.CodeInternalError)
@@ -111,8 +111,9 @@ func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 	out := ListListingResponse{
 		Data: listings,
 	}
-	if len(listings) >= limit {
-		lastRow := listings[len(listings)-1]
+	if len(listings) > limit {
+		out.Data = listings[:limit]
+		lastRow := out.Data[len(out.Data)-1]
 		id, err := uuid.Parse(lastRow.ID)
 		if err != nil {
 			lh.logger.Error("Bad listing id from DB", "listing_id", lastRow.ID, "err", err)
@@ -132,7 +133,7 @@ func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 
 		out = ListListingResponse{
-			Data:       listings,
+			Data:       out.Data,
 			NextCursor: &cursor,
 		}
 	}
