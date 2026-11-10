@@ -86,13 +86,14 @@ func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	limit, err := lh.parseListingLimit(r.URL.Query().Get("limit"))
 	if err != nil {
+		log.Error(`ListingHandler:List:parseListingLimit:Failed to parse limit`, "requestId", requestId, "err", err)
 		httpx.ValidationError(w, http.StatusBadRequest, err.Error(), httpx.CodeBadRequest, "limit")
 		return
 	}
 	after := r.URL.Query().Get("after")
 	rows, err := lh.queryListings(ctx, after, limit+1)
 	if err != nil {
-		log.Error("my listings query error", "err", err)
+		log.Error("ListingHandler:List:queryListings:Failed to query listings", "requestId", requestId, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "something went wrong", httpx.CodeInternalError)
 		return
 	}
@@ -100,11 +101,12 @@ func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	listings, err := lh.collapse(rows)
 	if errors.Is(err, errInvalidCursor) {
+		log.Error("ListingHandler:List:collapse:Invalid cursor", "requestId", requestId, "err", err)
 		httpx.ValidationError(w, http.StatusBadRequest, "Invalid cursor", httpx.CodeBadRequest, "after")
 		return
 	}
 	if err != nil {
-		lh.logger.Error("Listing Handler : List : Collapse : Error from collapse", "err", err)
+		log.Error("ListingHandler:List:collapse:Failed to collapse rows", "requestId", requestId, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "Failed to fetch listings", httpx.CodeInternalError)
 		return
 	}
@@ -116,8 +118,8 @@ func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 		lastRow := out.Data[len(out.Data)-1]
 		id, err := uuid.Parse(lastRow.ID)
 		if err != nil {
-			lh.logger.Error("Bad listing id from DB", "listing_id", lastRow.ID, "err", err)
-			httpx.Error(w, http.StatusInternalServerError, "Sonething went wrong", httpx.CodeInternalError)
+			log.Error("ListingHandler:List:Failed to parse listing id", "requestId", requestId, "listing_id", lastRow.ID, "err", err)
+			httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
 			return
 		}
 
@@ -127,8 +129,8 @@ func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 			Version:   cursorVersion,
 		})
 		if err != nil {
-			lh.logger.Error("Error in encoding of cursor", "err", err)
-			httpx.Error(w, http.StatusInternalServerError, "Sonething went wrong", httpx.CodeInternalError)
+			log.Error("ListingHandler:List:Failed to encode cursor", "requestId", requestId, "err", err)
+			httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
 			return
 		}
 
@@ -145,13 +147,18 @@ func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (lh ListingHandler) queryListings(ctx context.Context, after string, limit int) (*sql.Rows, error) {
+	requestId := middleware.RequestIdFromContext(ctx)
+	log := lh.logger.With("requestId", requestId, "after", after, "limit", limit)
 	if after == "" {
+		log.Info("ListingHandler:queryListings:No cursor provided, fetching first page", "limit", limit)
 		return lh.db.QueryContext(ctx, queryBeforeCursor, limit)
 	}
 	cursor, err := decodeCursor(after)
 	if err != nil {
+		log.Error("ListingHandler:queryListings:Failed to decode cursor", "after", after, "err", err)
 		return nil, err
 	}
+	log.Info("ListingHandler:queryListings:Cursor provided, fetching next page", "cursor", cursor, "limit", limit)
 	return lh.db.QueryContext(ctx, queryWithCursor, cursor.CreatedAt, cursor.ID, limit)
 }
 
@@ -161,14 +168,13 @@ func (lh ListingHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	requestId := middleware.RequestIdFromContext(ctx)
 	userId, ok := middleware.UserIdFromContext(ctx)
 	if !ok {
-		lh.logger.Error("ListingHandler:Create:Failed to get user id from context", "requestId", requestId)
+		lh.logger.Error("ListingHandler:Delete:Failed to get user id from context", "requestId", requestId)
 		httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
 		return
 	}
 	_, err := lh.db.ExecContext(ctx, `DELETE FROM listings WHERE id = $1 AND user_id = $2`, id, userId)
 	if err != nil {
-		lh.logger.Error("Delete Failed", "requestId", requestId, "listing id", id, "err", err)
-		log.Printf("db.Exec:delete %v", err)
+		lh.logger.Error("ListingHandler:Delete:Failed to delete listing", "requestId", requestId, "listing id", id, "err", err)
 		// http.Error(w, "Internal Error", http.StatusInternalServerError)
 		httpx.Error(w, http.StatusInternalServerError, "Failed to delete listing", httpx.CodeInternalError)
 		return
@@ -200,7 +206,7 @@ func (lh ListingHandler) ListingDetail(w http.ResponseWriter, r *http.Request) {
     WHERE l.id = $1
     ORDER BY l.created_at DESC, l.id DESC, i.position`, id)
 	if err != nil {
-		log.Error("my listings query error", "err", err)
+		log.Error("ListingHandler:ListingDetail:Failed to query listing", "requestId", requestId, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "something went wrong", httpx.CodeInternalError)
 		return
 	}
@@ -208,11 +214,12 @@ func (lh ListingHandler) ListingDetail(w http.ResponseWriter, r *http.Request) {
 
 	listings, err := lh.collapse(rows)
 	if err != nil {
-		lh.logger.Error("Listing Handler : List : Collapse : Error from collapse", "err", err)
+		log.Error("ListingHandler:ListingDetail:Failed to collapse rows", "requestId", requestId, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "Failed to fetch listings", httpx.CodeInternalError)
 		return
 	}
 	if len(listings) == 0 {
+		log.Info("ListingHandler:ListingDetail:Listing not found", "requestId", requestId, "listing_id", id)
 		httpx.Error(w, http.StatusNotFound, "Listing not found", httpx.CodeNotFound)
 		return
 	}
@@ -226,20 +233,21 @@ func (lh ListingHandler) ListingDetail(w http.ResponseWriter, r *http.Request) {
 func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	requestId := middleware.RequestIdFromContext(ctx)
+	log := lh.logger.With("requestId", requestId)
 	userId, ok := middleware.UserIdFromContext(ctx)
 	if !ok {
-		lh.logger.Error("ListingHandler:Create:Failed to get user id from context", "requestId", requestId)
+		log.Error("ListingHandler:Create:Failed to get user id from context", "requestId", requestId)
 		httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
 		return
 	}
 	var req CreateListingRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		lh.logger.Error("ListingHandler:Create:Failed to decode", "requestId", requestId, "err", err)
+		log.Error("ListingHandler:Create:Failed to decode", "requestId", requestId, "err", err)
 		httpx.Error(w, http.StatusUnprocessableEntity, "Request Validation Failed", httpx.CodeValidationError)
 		return
 	}
 	if err := req.Validate(); err != nil {
-		lh.logger.Error("ListingHandler:Create:Request Validation Failed", "requestId", requestId, "err", err)
+		log.Error("ListingHandler:Create:Request Validation Failed", "requestId", requestId, "err", err)
 		var verr ValidationError
 		errors.As(err, &verr)
 		httpx.ValidationError(w, http.StatusUnprocessableEntity, err.Error(), httpx.CodeValidationError, verr.Field)
@@ -251,7 +259,7 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 	for _, key := range req.ImageKeys {
 		imageId, _, err := parseUploadKeys(key, userId)
 		if err != nil {
-			lh.logger.Error("ListingHandler:Create:Failed to parse upload key", "requestId", requestId, "err", err)
+			log.Error("ListingHandler:Create:Failed to parse upload key", "requestId", requestId, "err", err)
 			httpx.Error(w, http.StatusUnprocessableEntity, "Invalid image key", httpx.CodeValidationError)
 			return
 		}
@@ -263,25 +271,25 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, s := range sources {
-		lh.logger.Info("ListingHandler:Create:Image source", "requestId", requestId, "upload_key", s.Uploadkey, "object_key", s.ObjectKey)
+		log.Info("ListingHandler:Create:Image source", "requestId", requestId, "upload_key", s.Uploadkey, "object_key", s.ObjectKey)
 		contentLength, contentType, err := lh.storage.Head(ctx, s.Uploadkey)
 		if errors.Is(err, storage.ErrNotFound) {
-			lh.logger.Error("ListingHandler:Create:ErrNotFound:Failed to parse upload key in source", "requestId", requestId, "err", err)
+			log.Error("ListingHandler:Create:ErrNotFound:Failed to parse upload key in source", "requestId", requestId, "err", err)
 			httpx.ValidationError(w, http.StatusInternalServerError, "No object found at Object key", httpx.CodeInternalError, "image_keys")
 			return
 		}
 		if err != nil {
-			lh.logger.Error("ListingHandler:Create:Failed to parse upload key in source", "requestId", requestId, "err", err)
+			log.Error("ListingHandler:Create:Failed to parse upload key in source", "requestId", requestId, "err", err)
 			httpx.ValidationError(w, http.StatusBadRequest, "No object found at Object key", httpx.CodeBadRequest, "image_keys")
 			return
 		}
 		if contentLength <= 0 || contentLength > maxImageBytes {
-			lh.logger.Error("ListingHandler:Create:Image size is out of range", "requestId", requestId)
+			log.Error("ListingHandler:Create:Image size is out of range", "requestId", requestId)
 			httpx.ValidationError(w, http.StatusBadRequest, "Uploaded image is out of size limit range", httpx.CodeValidationError, "image_keys")
 			return
 		}
 		if _, ok := allowedContentTypes[contentType]; !ok {
-			lh.logger.Error("ListingHandler:Create:Uploaded image content type mismatch", "requestId", requestId)
+			log.Error("ListingHandler:Create:Uploaded image content type mismatch", "requestId", requestId)
 			httpx.ValidationError(w, http.StatusBadRequest, "Uploaded image content type mismatch", httpx.CodeValidationError, "image_keys")
 			return
 		}
@@ -289,7 +297,7 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := lh.db.BeginTx(ctx, nil)
 	if err != nil {
-		lh.logger.Error("ListingHandler:Create:BeginTx Failed to start transaction", "requestId", requestId, "error", err)
+		log.Error("ListingHandler:Create:BeginTx Failed to start transaction", "requestId", requestId, "error", err)
 		httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
 		return
 	}
@@ -303,7 +311,7 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	var outputResponse CreateListingResponse
 	if err := row.Scan(&outputResponse.ID, &outputResponse.Title, &outputResponse.Status, &outputResponse.CreatedAt); err != nil {
-		lh.logger.Error("ListingHandler:Create:QueryRowContext:Failed to insert data into db", "requestId", requestId, "err", err)
+		log.Error("ListingHandler:Create:QueryRowContext:Failed to insert data into db", "requestId", requestId, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "Internal server error", httpx.CodeInternalError)
 		return
 	}
@@ -312,7 +320,7 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 		_, err := tx.ExecContext(ctx, `INSERT INTO images (listing_id, object_key, position) 
 		VALUES ($1, $2, $3)`, listingId, imageKey, int16(i))
 		if err != nil {
-			lh.logger.Error("ListingHandler:Create:ExecContext:Insertion of image is failed", "requestId", "imageKey", imageKey, requestId, "err", err)
+			log.Error("ListingHandler:Create:ExecContext:Insertion of image is failed", "requestId", "imageKey", imageKey, requestId, "err", err)
 			httpx.Error(w, http.StatusInternalServerError, "Internal server error", httpx.CodeInternalError)
 			return
 		}
@@ -323,7 +331,7 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Sources:   sources,
 	})
 	if err != nil {
-		lh.logger.Error("ListingHandler:Create:Marshal:Prepration of jobs payload is failed", "requestId", requestId, "err", err)
+		log.Error("ListingHandler:Create:Marshal:Prepration of jobs payload is failed", "requestId", requestId, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "Internal server error", httpx.CodeInternalError)
 		return
 	}
@@ -331,18 +339,18 @@ func (lh ListingHandler) Create(w http.ResponseWriter, r *http.Request) {
 	_, err = tx.ExecContext(ctx, `INSERT INTO jobs (kind, payload) VALUES ($1,$2)`, jobs.KindProcessListingImage, payload)
 
 	if err != nil {
-		lh.logger.Error("ListingHandler:Create:KindProcessListingImage:Insert of jobs payload is failed", "requestId", requestId, "err", err)
+		log.Error("ListingHandler:Create:KindProcessListingImage:Insert of jobs payload is failed", "requestId", requestId, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "Internal server error", httpx.CodeInternalError)
 		return
 	}
 
 	if err = tx.Commit(); err != nil {
-		lh.logger.Error("ListingHandler:Create:Commit:commit failed", "requestId", requestId, "err", err)
+		log.Error("ListingHandler:Create:Commit:commit failed", "requestId", requestId, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "Internal server error", httpx.CodeInternalError)
 		return
 	}
 
-	lh.logger.Info("ListingHandler:Create: Listing created successfully", "requestId", requestId, "listing_id", outputResponse.ID)
+	log.Info("ListingHandler:Create: Listing created successfully", "requestId", requestId, "listing_id", outputResponse.ID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
