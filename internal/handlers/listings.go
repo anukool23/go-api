@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github/com/anukool23/olx-api/internal/httpx"
 	"github/com/anukool23/olx-api/internal/jobs"
 	"github/com/anukool23/olx-api/internal/middleware"
@@ -11,10 +13,38 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+const (
+	defaultListingLimit = 20
+	maxtListingLimit    = 50
+)
+
+const queryBeforeCursor = `
+	SELECT l.id, l.title, l.description, l.price, l.city, l.status, l.created_at, l.user_id, i.id as imageId, i.object_key, i.position
+	FROM listings l
+	LEFT JOIN images i ON i.listing_id = l.id
+	WHERE l.id IN (
+		SELECT id FROM listings l2 WHERE l2.status = 'ready'
+		ORDER BY l2.created_at DESC, l2.id DESC LIMIT $1
+	)
+	ORDER BY l.created_at DESC, l.id DESC, i.position
+	`
+
+const queryWithCursor = `
+	SELECT l.id, l.title, l.description, l.price, l.city, l.status, l.created_at, l.user_id, i.id as imageId, i.object_key, i.position
+	FROM listings l
+	LEFT JOIN images i ON i.listing_id = l.id
+	WHERE l.id IN (
+		SELECT id FROM listings l2 WHERE l2.status = 'ready' AND (l2.created_at, l2.id) < ($1,$2)
+		ORDER BY l2.created_at DESC, l2.id DESC LIMIT $3
+	)
+	ORDER BY l.created_at DESC, l.id DESC, i.position
+	`
 
 type listing struct {
 	ID          string    `json:"id"`
@@ -53,14 +83,14 @@ func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	requestId := middleware.RequestIdFromContext(ctx)
 	log := lh.logger.With("requestId", requestId)
-	rows, err := lh.db.QueryContext(ctx, `
-	SELECT l.id, l.title, l.description, l.price, l.city, l.status, l.created_at, l.user_id, i.id as imageId, i.object_key, i.position
-	FROM listings l
-	LEFT JOIN images i ON i.listing_id = l.id
-	WHERE l.id IN (
-		SELECT id FROM listings ORDER BY created_at DESC, id DESC LIMIT $1
-	)
-	ORDER BY l.created_at DESC, l.id DESC, i.position`, MaxMyListings)
+
+	limit, err := lh.parseListingLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		httpx.ValidationError(w, http.StatusBadRequest, err.Error(), httpx.CodeBadRequest, "limit")
+		return
+	}
+	after := r.URL.Query().Get("after")
+	rows, err := lh.queryListings(ctx, after, limit)
 	if err != nil {
 		log.Error("my listings query error", "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "something went wrong", httpx.CodeInternalError)
@@ -69,15 +99,59 @@ func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	listings, err := lh.collapse(rows)
+	if errors.Is(err, errInvalidCursor) {
+		httpx.ValidationError(w, http.StatusBadRequest, "Invalid cursor", httpx.CodeBadRequest, "after")
+		return
+	}
 	if err != nil {
 		lh.logger.Error("Listing Handler : List : Collapse : Error from collapse", "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "Failed to fetch listings", httpx.CodeInternalError)
 		return
 	}
+	out := ListListingResponse{
+		Data: listings,
+	}
+	if len(listings) >= limit {
+		lastRow := listings[len(listings)-1]
+		id, err := uuid.Parse(lastRow.ID)
+		if err != nil {
+			lh.logger.Error("Bad listing id from DB", "listing_id", lastRow.ID, "err", err)
+			httpx.Error(w, http.StatusInternalServerError, "Sonething went wrong", httpx.CodeInternalError)
+			return
+		}
+
+		cursor, err := encodeCursor(listingCursor{
+			ID:        id,
+			CreatedAt: lastRow.CreatedAt,
+			Version:   cursorVersion,
+		})
+		if err != nil {
+			lh.logger.Error("Error in encoding of cursor", "err", err)
+			httpx.Error(w, http.StatusInternalServerError, "Sonething went wrong", httpx.CodeInternalError)
+			return
+		}
+
+		out = ListListingResponse{
+			Data:       listings,
+			NextCursor: &cursor,
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
-	_ = json.NewEncoder(w).Encode(listings)
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (lh ListingHandler) queryListings(ctx context.Context, after string, limit int) (*sql.Rows, error) {
+	if after == "" {
+		return lh.db.QueryContext(ctx, queryBeforeCursor, limit)
+	}
+	cursor, err := decodeCursor(after)
+	if err != nil {
+		return nil, err
+	}
+	return lh.db.QueryContext(ctx, queryWithCursor, cursor.CreatedAt, cursor.ID, limit)
 }
 
 func (lh ListingHandler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -325,7 +399,7 @@ func (lh ListingHandler) collapse(rows *sql.Rows) ([]GetListingResponse, error) 
 		var objKey sql.NullString
 		var position sql.NullInt16
 		if err := rows.Scan(&l.ID, &l.Title, &l.Description, &l.Price, &l.City, &l.Status, &l.CreatedAt, &l.Userid, &imageId, &objKey, &position); err != nil {
-			lh.logger.Error("rows.scan : Failed to scan listing: %v", err)
+			lh.logger.Error("rows.scan : Failed to scan listing: %w", err)
 			return nil, err
 		}
 		if _, ok := seen[l.ID]; !ok {
@@ -358,4 +432,20 @@ func (lh ListingHandler) toImageResponse(imageRow []imageRow) []ImageResponse {
 			Position:  img.Position})
 	}
 	return out
+}
+
+func (lh ListingHandler) parseListingLimit(raw string) (int, error) {
+	lh.logger.Info("The raw value is", "raw", raw)
+	if raw == "" {
+		return defaultListingLimit, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("limit must be an integer")
+	}
+	if n < 1 || n > maxtListingLimit {
+		return 0, fmt.Errorf("limit must be between 1 and %d", maxtListingLimit)
+	}
+	lh.logger.Info("The final value is", "n", n)
+	return n, nil
 }
