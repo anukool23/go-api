@@ -10,7 +10,6 @@ import (
 	"github/com/anukool23/olx-api/internal/jobs"
 	"github/com/anukool23/olx-api/internal/middleware"
 	"github/com/anukool23/olx-api/internal/storage"
-	"log"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -84,6 +83,17 @@ func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 	requestId := middleware.RequestIdFromContext(ctx)
 	log := lh.logger.With("requestId", requestId)
 
+	filters, err := parseListingFilters(r.URL.Query())
+	if err != nil {
+		var verr *ValidationError
+		if errors.As(err, &verr) {
+			httpx.ValidationError(w, http.StatusBadRequest, err.Error(), httpx.CodeValidationError, verr.Field)
+			return
+		}
+		httpx.ValidationError(w, http.StatusBadRequest, err.Error(), httpx.CodeValidationError, "")
+		return
+	}
+
 	limit, err := lh.parseListingLimit(r.URL.Query().Get("limit"))
 	if err != nil {
 		log.Error(`ListingHandler:List:parseListingLimit:Failed to parse limit`, "requestId", requestId, "err", err)
@@ -91,7 +101,7 @@ func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	after := r.URL.Query().Get("after")
-	rows, err := lh.queryListings(ctx, after, limit+1)
+	rows, err := lh.queryListings(ctx, filters, after, limit+1)
 	if err != nil {
 		log.Error("ListingHandler:List:queryListings:Failed to query listings", "requestId", requestId, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "something went wrong", httpx.CodeInternalError)
@@ -146,20 +156,21 @@ func (lh ListingHandler) List(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
-func (lh ListingHandler) queryListings(ctx context.Context, after string, limit int) (*sql.Rows, error) {
+func (lh ListingHandler) queryListings(ctx context.Context, filters listingFilters, after string, limit int) (*sql.Rows, error) {
 	requestId := middleware.RequestIdFromContext(ctx)
 	log := lh.logger.With("requestId", requestId, "after", after, "limit", limit)
-	if after == "" {
-		log.Info("ListingHandler:queryListings:No cursor provided, fetching first page", "limit", limit)
-		return lh.db.QueryContext(ctx, queryBeforeCursor, limit)
+	var cur *listingCursor
+	if after != "" {
+		cursor, err := decodeCursor(after)
+		if err != nil {
+			log.Error("ListingHandler:queryListings:Failed to decode cursor", "after", after, "err", err)
+			return nil, err
+		}
+		cur = &cursor
 	}
-	cursor, err := decodeCursor(after)
-	if err != nil {
-		log.Error("ListingHandler:queryListings:Failed to decode cursor", "after", after, "err", err)
-		return nil, err
-	}
-	log.Info("ListingHandler:queryListings:Cursor provided, fetching next page", "cursor", cursor, "limit", limit)
-	return lh.db.QueryContext(ctx, queryWithCursor, cursor.CreatedAt, cursor.ID, limit)
+	query, args := buildListingQuery(filters, cur, limit)
+	log.Info("ListingHandler:queryListings:Cursor provided, fetching next page", "cursor", cur, "limit", limit)
+	return lh.db.QueryContext(ctx, query, args...)
 }
 
 func (lh ListingHandler) Delete(w http.ResponseWriter, r *http.Request) {
