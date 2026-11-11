@@ -111,25 +111,25 @@ const queryTemplate = `
 func buildListingQuery(filters listingFilters, cursor *listingCursor, limit int) (string, []any) {
 	where := []string{fmt.Sprintf("l2.status = '%s'", filters.Status)}
 	args := []any{}
-	if filters.City != ""{
+	if filters.City != "" {
 		args = append(args, strings.ToLower(filters.City))
-		where = append(where, fmt.Sprintf("lower(l2.city) = $%d",len(args)))
+		where = append(where, fmt.Sprintf("lower(l2.city) = $%d", len(args)))
 	}
 	if filters.MinPrice != nil {
 		args = append(args, *filters.MinPrice)
-		where = append(where, fmt.Sprintf("l2.price >= $%d",len(args)))
+		where = append(where, fmt.Sprintf("l2.price >= $%d", len(args)))
 	}
 	if filters.MaxPrice != nil {
 		args = append(args, *filters.MaxPrice)
-		where = append(where, fmt.Sprintf("l2.price <= $%d",len(args)))
+		where = append(where, fmt.Sprintf("l2.price <= $%d", len(args)))
 	}
 	if cursor != nil {
-		args = append(args, cursor.CreatedAt,cursor.ID)
+		args = append(args, cursor.CreatedAt, cursor.ID)
 		where = append(where, fmt.Sprintf("(l2.created_at, l2.id) < ($%d, $%d)", len(args)-1, len(args)))
 	}
 	args = append(args, limit)
 
-	query:= fmt.Sprintf(queryTemplate,strings.Join(where, "\n\t\t AND "),len(args))
+	query := fmt.Sprintf(queryTemplate, strings.Join(where, "\n\t\t AND "), len(args))
 	fmt.Print(query)
 
 	return query, args
