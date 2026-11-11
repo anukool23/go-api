@@ -26,11 +26,7 @@ type listingFilters struct {
 
 func parseListingFilters(params url.Values) (listingFilters, error) {
 	var f listingFilters
-	rawStatus := strings.TrimSpace(params.Get("status"))
-	if rawStatus == "" {
-		rawStatus = defaultListingStatus
-	}
-	status, ok := canonicalListingStatus(rawStatus)
+	status, ok := canonicalListingStatus(defaultListingStatus)
 	if !ok {
 		return listingFilters{}, &ValidationError{Field: "status", Message: fmt.Sprintf("must be one of %s, %s, %s", statusReady, statusPending, statusRejected)}
 	}
