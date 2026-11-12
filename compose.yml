@@ -1,0 +1,63 @@
+name: olapi
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: olx-api
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD_SHELL", "pg_isready -U postgres -d olx-api"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  
+  migrate:
+    image: olx-api:latest
+    env_file: .env
+    pull_policy: never
+    command: ["/app/migrate","up"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy 
+  
+  api:
+    image: olx-api:latest
+    env_file: .env
+    build: .
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/app/healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+      start_interval: 1s
+    stop_grace_period: 40s
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./caddy: /etc/caddy:ro
+      - caddy_data: /data
+      - caddy_config: /config
+  
+volumes:
+    pgdata:
+    caddy_data:
+    caddy_config:
