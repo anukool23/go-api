@@ -66,6 +66,7 @@ func main() {
 	globalRateLimit := middleware.RateLimit(logger, rate.Every(time.Second), 100)
 	signInLimiter := middleware.RateLimit(logger, rate.Every(time.Second*12), 5)
 	signUpLimiter := middleware.RateLimit(logger, rate.Every(time.Minute), 2)
+	writeLimiter := middleware.RateLimit(logger, rate.Every(5*time.Second), 10)
 
 	authMiddleware := middleware.RequireAuth(logger, cfg.JwtKey)
 
@@ -74,7 +75,8 @@ func main() {
 	mux.HandleFunc("GET /listings", lh.List)
 	mux.HandleFunc("GET /listings/{id}", lh.ListingDetail)
 	mux.Handle("DELETE /listings/{id}", authMiddleware(http.HandlerFunc(lh.Delete)))
-	mux.Handle("POST /listings", authMiddleware(http.HandlerFunc(lh.Create)))
+	mux.Handle("PUT /listings/{id}", authMiddleware(writeLimiter(http.HandlerFunc(lh.Update))))
+	mux.Handle("POST /listings", authMiddleware(writeLimiter(http.HandlerFunc(lh.Create))))
 	mux.Handle("GET /mylistings", authMiddleware(http.HandlerFunc(lh.MyListings)))
 	mux.Handle("POST /signup", signUpLimiter(http.HandlerFunc(ah.SignUp)))
 	mux.Handle("POST /signin", signInLimiter(http.HandlerFunc(ah.SignIn)))

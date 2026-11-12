@@ -23,28 +23,6 @@ const (
 	maxtListingLimit    = 50
 )
 
-const queryBeforeCursor = `
-	SELECT l.id, l.title, l.description, l.price, l.city, l.status, l.created_at, l.user_id, i.id as imageId, i.object_key, i.position
-	FROM listings l
-	LEFT JOIN images i ON i.listing_id = l.id
-	WHERE l.id IN (
-		SELECT id FROM listings l2 WHERE l2.status = 'ready'
-		ORDER BY l2.created_at DESC, l2.id DESC LIMIT $1
-	)
-	ORDER BY l.created_at DESC, l.id DESC, i.position
-	`
-
-const queryWithCursor = `
-	SELECT l.id, l.title, l.description, l.price, l.city, l.status, l.created_at, l.user_id, i.id as imageId, i.object_key, i.position
-	FROM listings l
-	LEFT JOIN images i ON i.listing_id = l.id
-	WHERE l.id IN (
-		SELECT id FROM listings l2 WHERE l2.status = 'ready' AND (l2.created_at, l2.id) < ($1,$2)
-		ORDER BY l2.created_at DESC, l2.id DESC LIMIT $3
-	)
-	ORDER BY l.created_at DESC, l.id DESC, i.position
-	`
-
 type listing struct {
 	ID          string    `json:"id"`
 	Title       string    `json:"title"`
@@ -173,17 +151,76 @@ func (lh ListingHandler) queryListings(ctx context.Context, filters listingFilte
 	return lh.db.QueryContext(ctx, query, args...)
 }
 
-func (lh ListingHandler) Delete(w http.ResponseWriter, r *http.Request) {
+func (lh ListingHandler) Update(w http.ResponseWriter, r *http.Request) {
+	requestId := middleware.RequestIdFromContext(r.Context())
+	log := lh.logger.With("requestId", requestId)
 	id := r.PathValue("id")
+	listingId, err := uuid.Parse(id)
+	if err != nil {
+		lh.logger.Error("ListingHandler:Update:Invalid listing id", "requestId", requestId, "listing_id", id, "err", err)
+		httpx.Error(w, http.StatusBadRequest, "Invalid listing id", httpx.CodeInvalidID)
+		return
+	}
+	ctx := r.Context()
+	userId, ok := middleware.UserIdFromContext(ctx)
+	if !ok {
+		lh.logger.Error("ListingHandler:Update:Failed to get user id from context")
+		httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
+		return
+	}
+	var req UpdateListingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Error("ListingHandler:Update:Failed to decode", "err", err)
+		httpx.Error(w, http.StatusUnprocessableEntity, "Request Validation Failed", httpx.CodeValidationError)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		log.Error("ListingHandler:Update:Request Validation Failed", "err", err)
+		var verr *ValidationError
+		errors.As(err, &verr)
+		httpx.ValidationError(w, http.StatusUnprocessableEntity, err.Error(), httpx.CodeValidationError, verr.Field)
+		return
+	}
+	row := lh.db.QueryRowContext(ctx, `
+	UPDATE listings SET title = $1, description = $2, price = $3, city = $4
+	WHERE id = $5 AND user_id = $6
+	RETURNING id, title, description, price, city, status, user_id, created_at`, req.Title, req.Description, req.Price, req.City, listingId, userId)
+
+	var outputResponse UpdateListingResponse
+	err = row.Scan(&outputResponse.ID, &outputResponse.Title, &outputResponse.Description, &outputResponse.Price, &outputResponse.City, &outputResponse.Status, &outputResponse.UserId, &outputResponse.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		log.Info("ListingHandler:Update:Listing not found or user is not authorized to update", "listing_id", id)
+		httpx.Error(w, http.StatusNotFound, "Listing not found", httpx.CodeNotFound)
+		return
+	}
+	if err != nil {
+		log.Error("ListingHandler:Update:Failed to scan updated listing", "err", err)
+		httpx.Error(w, http.StatusInternalServerError, "Failed to update listing", httpx.CodeInternalError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(outputResponse)
+
+}
+
+func (lh ListingHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	requestId := middleware.RequestIdFromContext(ctx)
+	id := r.PathValue("id")
+	_, err := uuid.Parse(id)
+	if err != nil {
+		lh.logger.Error("ListingHandler:Delete:Invalid listing id", "requestId", requestId, "listing_id", id, "err", err)
+		httpx.Error(w, http.StatusBadRequest, "Invalid listing id", httpx.CodeInvalidID)
+		return
+	}
 	userId, ok := middleware.UserIdFromContext(ctx)
 	if !ok {
 		lh.logger.Error("ListingHandler:Delete:Failed to get user id from context", "requestId", requestId)
 		httpx.Error(w, http.StatusInternalServerError, "Something went wrong", httpx.CodeInternalError)
 		return
 	}
-	_, err := lh.db.ExecContext(ctx, `DELETE FROM listings WHERE id = $1 AND user_id = $2`, id, userId)
+	_, err = lh.db.ExecContext(ctx, `DELETE FROM listings WHERE id = $1 AND user_id = $2`, id, userId)
 	if err != nil {
 		lh.logger.Error("ListingHandler:Delete:Failed to delete listing", "requestId", requestId, "listing id", id, "err", err)
 		// http.Error(w, "Internal Error", http.StatusInternalServerError)
